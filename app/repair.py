@@ -68,6 +68,11 @@ class RepairEngine:
         self.updater = updater
         self.jobs: dict[str, Job] = {}
 
+    @staticmethod
+    def _short(text: str, limit: int = 120) -> str:
+        text = str(text or "").replace("\n", " ")
+        return text if len(text) <= limit else text[:limit].rstrip() + "..."
+
     # ------------------------------------------------------------------ #
     def new_job(self, server: Server) -> Job:
         job = Job(id=uuid.uuid4().hex[:8], server_id=server.server_id, server_name=server.name)
@@ -245,11 +250,13 @@ class RepairEngine:
         try:
             result = self.updater.find_update(meta, ctx.loader, ctx.mc_version)
         except Exception as exc:
-            job.emit(f"Ricerca fallita: {exc}", "error")
-            return None
+            job.emit(f"Ricerca fallita: {self._short(exc)}", "error")
+            job.emit("Procedo con la quarantena, cosi' il server riparte.", "warn")
+            return self._do_quarantine(server, root, action, job)
         if not result.ok:
-            job.emit(f"Nessun aggiornamento automatico: {result.message}", "warn")
-            return None
+            job.emit(f"Nessun aggiornamento automatico: {self._short(result.message)}", "warn")
+            job.emit("Procedo con la quarantena, cosi' il server riparte.", "warn")
+            return self._do_quarantine(server, root, action, job)
 
         tmp_dir = Path(self.cfg.data_dir) / "tmp"
         tmp_dir.mkdir(parents=True, exist_ok=True)
@@ -258,10 +265,11 @@ class RepairEngine:
         try:
             self.updater.download_update(result, tmp_file)
         except Exception as exc:
-            job.emit(f"Download fallito: {exc}", "error")
+            job.emit(f"Download fallito: {self._short(exc)}", "error")
             if tmp_file.exists():
                 tmp_file.unlink()
-            return None
+            job.emit("Procedo con la quarantena, cosi' il server riparte.", "warn")
+            return self._do_quarantine(server, root, action, job)
 
         # il vecchio jar va in quarantena, il nuovo prende il suo posto
         manifest = self.store.quarantine(server.server_id, server.name, [(action.target, str(source))], reason=f"aggiornamento: {result.project} {result.version_name}")

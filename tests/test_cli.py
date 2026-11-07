@@ -150,6 +150,68 @@ def test_parse_selection():
     assert parse("abc", 5) == []
 
 
+def test_auto_command_quarantines_when_update_is_impossible(sandbox):
+    """'auto' prova ad aggiornare; se non puo', mette in quarantena."""
+    base, servers, home = sandbox
+    subprocess.run([sys.executable, str(ROOT / "scripts" / "make_demo.py"),
+                    "--out", str(servers), "--force"], check=True)
+    (servers / "servers.json").unlink(missing_ok=True)
+
+    result = run("auto", "demo-forge", home=home, servers=servers)
+    assert result.returncode == 0, result.stderr
+    root = servers / "demo-forge"
+    assert not (root / "mods" / "derivedaddon-1.0.0.jar").exists()
+    assert not (root / "mods" / "oldmod-1.19.4.jar").exists()
+    assert (root / "mods" / "twilightforest-1.20.1.jar").exists()  # quello sano non si tocca
+
+
+def test_auto_falls_back_to_quarantine(monkeypatch, tmp_path):
+    """Se Modrinth risponde ma l'aggiornamento non va a buon fine, si toglie il file."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("cm_mod", SCRIPT)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    servers = tmp_path / "servers"
+    subprocess.run([sys.executable, str(ROOT / "scripts" / "make_demo.py"),
+                    "--out", str(servers), "--force"], check=True)
+    (servers / "servers.json").unlink(missing_ok=True)
+
+    home = module.MedicHome(tmp_path / "home")
+    server = module.Server(servers / "demo-fabric", "demo-fabric")
+    server.jars = module.scan_jars(server)
+    module.read_log(server)
+    server.mc_version = module.detect_mc_version(server.log_text)
+    server.loader = module.detect_loader(server.log_text)
+
+    # fingiamo che Modrinth sia raggiungibile ma l'aggiornamento fallisca sempre
+    monkeypatch.setattr(module, "modrinth_available", lambda: True)
+    monkeypatch.setattr(module, "do_update", lambda *a, **k: False)
+
+    finding = next(f for f in module.analyze(server) if f.rule_id == "fabric_mc_version")
+    assert finding.targets
+    jar = finding.targets[0]
+    changed = module.apply_finding(home, server, finding, use_update=True)
+    assert changed is True
+    assert not Path(jar.path).exists(), "il file deve finire in quarantena"
+
+
+def test_watch_once_repairs_without_asking(sandbox):
+    base, servers, home = sandbox
+    subprocess.run([sys.executable, str(ROOT / "scripts" / "make_demo.py"),
+                    "--out", str(servers), "--force"], check=True)
+    (servers / "servers.json").unlink(missing_ok=True)
+
+    result = run("watch", "--once", home=home, servers=servers)
+    assert result.returncode == 0, result.stderr
+    assert "rilevato un problema" in result.stdout
+    assert "riparato" in result.stdout
+
+    root = servers / "demo-paper"
+    assert not (root / "plugins" / "ShopGUI.jar").exists()
+    assert (root / "mods" / "sodium-fabric-1.20.1-0.5.3.jar").exists()
+
+
 def test_scan_without_servers(tmp_path):
     result = run("scan", home=tmp_path / "home", servers=tmp_path / "vuoto")
     assert result.returncode == 1

@@ -232,6 +232,62 @@ def create_app(cfg: Config | None = None) -> Flask:
         return redirect(url_for("server_page", server_id=server_id, job=job.id))
 
     # ------------------------------------------------------------------ #
+    @app.post("/server/<server_id>/auto")
+    def auto_fix(server_id: str):
+        """Riparazione automatica: aggiorna se puo', altrimenti toglie il file."""
+        server = medic.get_server(server_id)
+        if not server:
+            return redirect(url_for("index"))
+        analysis = medic.analyze(server, force=True)
+
+        actions: list[Action] = []
+        seen: set[str] = set()
+        for finding in analysis.sorted_findings():
+            if finding.severity not in ("critical", "high"):
+                continue
+            for ref in finding.targets:
+                if ref.rel in seen:
+                    continue
+                seen.add(ref.rel)
+                if finding.remedy == "update" and medic.updater:
+                    actions.append(Action(
+                        id=uuid.uuid4().hex[:8], kind="update", target=ref.rel,
+                        label=f"Aggiorna {ref.label} (se non si puo': quarantena)",
+                        confidence=finding.confidence))
+                elif finding.remedy == "move":
+                    param = finding.actions[0].param if finding.actions else ""
+                    if param:
+                        actions.append(Action(
+                            id=uuid.uuid4().hex[:8], kind="move", target=ref.rel,
+                            param=param, label=f"Sposta {ref.name} in {param}/",
+                            confidence=finding.confidence))
+                elif finding.remedy == "quarantine":
+                    actions.append(Action(
+                        id=uuid.uuid4().hex[:8], kind="quarantine", target=ref.rel,
+                        label=f"Metti in quarantena {ref.name}",
+                        confidence=finding.confidence))
+
+        if not actions:
+            return redirect(url_for("server_page", server_id=server_id, refresh="1"))
+
+        rollback = request.form.get("rollback", "1") == "1"
+        job = medic.engine.new_job(server)
+        job.emit(f"Riparazione automatica: {len(actions)} file da sistemare")
+
+        def run():
+            try:
+                medic.engine.apply(server, actions, auto_start=True, verify=True,
+                                   rollback=rollback, job=job)
+            except Exception as exc:  # pragma: no cover
+                job.emit(f"Errore imprevisto: {exc}", "error")
+                job.finish("error", error=str(exc))
+            finally:
+                medic.analyze(server, force=True)
+
+        threading.Thread(target=run, daemon=True).start()
+        return redirect(url_for("server_page", server_id=server_id, job=job.id))
+
+    # ------------------------------------------------------------------ #
     @app.get("/api/job/<job_id>")
     def job_status(job_id: str):
         job = medic.engine.jobs.get(job_id)

@@ -56,11 +56,45 @@ Oppure i comandi diretti:
 python3 /crafty/servers/crafty-medic.py scan                 # analizza tutti i server
 python3 /crafty/servers/crafty-medic.py scan demo-1          # solo uno
 python3 /crafty/servers/crafty-medic.py fix demo-1           # ti chiede cosa fare
-python3 /crafty/servers/crafty-medic.py fix demo-1 --auto    # fa tutto da solo
+python3 /crafty/servers/crafty-medic.py auto demo-1          # sistema tutto da solo (vedi sotto)
+python3 /crafty/servers/crafty-medic.py watch                # sorveglia i log e ripara da sé
 python3 /crafty/servers/crafty-medic.py undo                 # annulla l'ultima riparazione
 python3 /crafty/servers/crafty-medic.py quarantine           # elenca i file tolti
 python3 /crafty/servers/crafty-medic.py history              # cosa è stato fatto
 ```
+
+### `auto`: la regola è "aggiorna se puoi, togli se non puoi"
+
+`auto demo-1` (uguale a `fix demo-1 --auto`) applica questa logica a ogni problema:
+
+1. **Se il mod/plugin è obsoleto** (versione sbagliata di Minecraft, API vecchia…) → cerca su Modrinth
+   una versione compatibile con la tua versione + loader e **la scarica al posto del vecchio**
+2. **Se l'aggiornamento non è possibile** (progetto non trovato, nessuna versione compatibile,
+   container senza internet, nome ambiguo) → **mette il file in quarantena**, così il server riparte
+3. Se il problema è solo di posizione (es. un plugin in `mods/`) → **lo sposta** nella cartella giusta
+
+Prima di toccare anything fa un backup; se poi il server non riparte, `undo` rimette tutto a posto.
+Con `--no-update` salta il punto 1 e toglie direttamente.
+
+### `watch`: zero click, come Aternos
+
+```sh
+cd /crafty/servers && nohup python3 crafty-medic.py watch > watch.log 2>&1 &
+```
+
+Resta in ascolto dentro il container: **ogni 30 secondi** (regolabile con `--every 10`) controlla i log
+di tutti i server e, appena vede un crash, ripara da solo con la stessa regola di `auto`
+(aggiorna, o toglie). Se in Crafty hai attivo il riavvio automatico del server, te lo ritrovi su
+senza aver fatto niente.
+
+* `watch --once` → fa un solo controllo ed esce (comodo anche per il cron)
+* `watch demo-1 --every 10` → solo un server, ogni 10 secondi
+* `cat watch.log` per vedere cosa ha fatto; `kill %1`/`pkill -f crafty-medic` per fermarlo
+* ⚠️ essendo dentro il container, se ZimaOS ricrea il container il watch si ferma:
+  ti basta rilanciare quel comando (o metterlo tra i preferiti)
+
+Se vuoi i bottoni invece dei comandi, c'è la **sezione B**: stesso motore, con pulsanti,
+riavvio e rollback automatici.
 
 ## Che cosa vedi
 
@@ -163,10 +197,28 @@ e rollback automatico.
 4. `cp .env.example .env` e compila `CRAFTY_URL`, `CRAFTY_TOKEN`, `CRAFTY_SERVERS_DIR`
 5. `docker compose up -d --build` → apri **http://IP-DI-ZIMAOS:8765**
 
-Dalla dashboard clicchi **Analizza e ripara**, spunti quello che vuoi fare e premi **🛠 Ripara ora**:
-lui fa backup → ferma → sposta → riavvia → rilegge il log → **se il crash c'è ancora, annulla tutto**.
+Dalla scheda del server hai due strade:
+
+* **🩺 Sistema tutto da solo** (un click): per ogni problema **aggiorna** il mod/plugin se Modrinth ha
+  una versione compatibile, altrimenti lo **mette in quarantena**; poi fa backup → ferma → applica →
+  riavvia → rilegge il log → **se il crash c'è ancora, annulla tutto**.
+* **🛠 Ripara ora** (scegli tu): ogni problema ha le sue opzioni spuntate
+  (*Aggiorna*, *Metti in quarantena*, *Sposta in plugins/*) e decidi cosa applicare.
 
 ---
+
+# La regola automatica (in entrambi i modi)
+
+Per ogni problema trovato, Crafty Medic prova nell'ordine:
+
+1. **Aggiorna** — se il mod/plugin è obsoleto e su Modrinth esiste una versione compatibile
+   con la tua versione di Minecraft e il tuo loader, la scarica e la sostituisce (il vecchio
+   va in quarantena)
+2. **Sposta** — se il file è solo nella cartella sbagliata (`plugins/` invece di `mods/`,
+   o in una sottocartella), lo mette dove va
+3. **Quarantena** — se non si può aggiornare né spostare, lo toglie (senza cancellarlo) così il server riparte
+
+Sempre con backup prima, e sempre annullabile.
 
 # Cosa sa riconoscere
 

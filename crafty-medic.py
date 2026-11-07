@@ -1146,6 +1146,21 @@ LOADERS = {"fabric": ["fabric", "quilt"], "forge": ["forge"], "neoforge": ["neof
            "bukkit": ["bukkit", "spigot", "paper", "purpur"], "paper": ["paper", "purpur", "bukkit", "spigot"]}
 
 
+_MODRINTH_OK = None
+
+
+def modrinth_available() -> bool:
+    """True se Modrinth e' raggiungibile (controllato una volta sola)."""
+    global _MODRINTH_OK
+    if _MODRINTH_OK is None:
+        try:
+            http_json(MODRINTH + "/project/sodium", timeout=6)
+            _MODRINTH_OK = True
+        except Exception:
+            _MODRINTH_OK = False
+    return _MODRINTH_OK
+
+
 def http_json(url: str, timeout: int = 25):
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": "application/json"})
     with urllib.request.urlopen(request, timeout=timeout) as response:
@@ -1226,6 +1241,9 @@ def download_file(url: str, destination: Path) -> None:
 
 def do_update(home: MedicHome, server: Server, jar: Jar, loader: str, mc_version: str, forced_slug: str = "") -> bool:
     head("Aggiornamento di %s" % jar.rel)
+    if not modrinth_available():
+        warn("Modrinth non raggiungibile: niente aggiornamento automatico")
+        return False
     try:
         if forced_slug:
             candidates = [{"id": forced_slug, "slug": forced_slug, "title": forced_slug, "score": 100.0}]
@@ -1382,6 +1400,11 @@ def apply_finding(home: MedicHome, server: Server, finding: Finding, use_update:
         for jar in finding.targets:
             if do_update(home, server, jar, server.loader, server.mc_version):
                 done = True
+            else:
+                # non si puo' aggiornare: lo tolgo, cosi' il server riparte
+                warn("non riesco ad aggiornare %s: lo metto in quarantena" % jar.rel)
+                do_quarantine(home, server, [jar], finding.title + " (aggiornamento non riuscito)", batch=batch)
+                done = True
         if done:
             return True
     for jar in finding.targets:
@@ -1489,6 +1512,12 @@ def cmd_fix(args, home: MedicHome, servers_dir: Path) -> int:
 
         if args.auto:
             selected = fixable
+            # --auto = "sistema e basta": provo ad aggiornare, se non si puo' tolgo
+            if not args.no_update:
+                if modrinth_available():
+                    args.update = True
+                else:
+                    warn("Modrinth non raggiungibile: in automatico posso solo togliere i file")
         else:
             head("Cosa faccio?")
             for index, finding in enumerate(fixable, 1):
@@ -1498,6 +1527,10 @@ def cmd_fix(args, home: MedicHome, servers_dir: Path) -> int:
             if not choice:
                 info("nessuna modifica fatta")
                 continue
+            if (not args.no_update and not args.update and modrinth_available()
+                    and any(f.remedy == "update" for f in fixable)
+                    and _confirm("Provo prima ad aggiornare i mod/plugin obsoleti da Modrinth?", True)):
+                args.update = True
             indices = parse_selection(choice, len(fixable))
             selected = [fixable[i - 1] for i in indices]
             if not selected:
@@ -1717,6 +1750,109 @@ def cmd_menu(home: MedicHome, servers_dir: Path) -> int:
     return cmd_fix(argparse.Namespace(server=server.id, auto=False, backup=True, update=False), home, servers_dir)
 
 
+
+def watch_pass(servers, state, args, home) -> int:
+    """Un giro di controllo: ritorna quante riparazioni ha fatto."""
+    repaired = 0
+    for server in servers:
+        log_path = server.log_path and Path(server.log_path)
+        if not log_path or not log_path.is_file():
+            continue
+        try:
+            size = log_path.stat().st_size
+        except OSError:
+            continue
+        # al primo giro leggiamo tutto il log: cosi' il watch sistema anche un crash gia' avvenuto
+        entry = state.setdefault(server.id, {"size": 0, "buffer": "", "handled": set()})
+        if size < entry["size"]:          # il log e' stato ruotato
+            entry["size"] = 0
+            entry["buffer"] = ""
+        if size == entry["size"]:
+            continue
+        try:
+            with open(log_path, "rb") as fh:
+                fh.seek(entry["size"])
+                new_text = fh.read().decode("utf-8", errors="replace")
+        except OSError:
+            continue
+        entry["size"] = size
+        entry["buffer"] = (entry["buffer"] + new_text)[-200000:]
+
+        server.jars = scan_jars(server)
+        server.log_text = entry["buffer"]
+        server.mc_version = detect_mc_version(entry["buffer"]) or server.mc_version
+        server.loader = detect_loader(entry["buffer"]) or server.loader or guess_loader_from_files(server)
+
+        findings = analyze(server)
+        actionable = [f for f in findings
+                      if f.severity in ("critico", "alto")
+                      and f.remedy in ("quarantine", "move", "update")
+                      and f.targets
+                      and any(j.rel not in entry["handled"] for j in f.targets)]
+        if not actionable:
+            continue
+
+        stamp = time.strftime("%H:%M:%S")
+        err("[%s] %s: rilevato un problema" % (stamp, server.name))
+        for finding in actionable:
+            print("      - %s -> %s" % (finding.title, finding.target_names))
+        if is_process_running(server):
+            warn("il server risulta in esecuzione: riprovo al prossimo giro")
+            continue
+
+        batch = home.new_batch(server, "riparazione automatica (watch)")
+        for finding in actionable:
+            if apply_finding(home, server, finding, use_update=args.update, batch=batch):
+                repaired += 1
+            for jar in finding.targets:
+                entry["handled"].add(jar.rel)
+        home.record("watch: riparazione automatica su %s" % server.name)
+        ok("[%s] %s: riparato" % (stamp, server.name))
+        warn("ora riavvia il server da Crafty (se hai il riavvio automatico, parte da solo)")
+    return repaired
+
+
+def cmd_watch(args, home: MedicHome, servers_dir: Path) -> int:
+    servers = discover_servers(servers_dir)
+    if args.server:
+        servers = [s for s in servers if s.id == args.server or s.name == args.server or args.server in s.id]
+    if not servers:
+        err("nessun server trovato")
+        return 1
+
+    for server in servers:
+        read_log(server)
+        server.jars = scan_jars(server)
+        server.mc_version = detect_mc_version(server.log_text)
+        server.loader = detect_loader(server.log_text) or guess_loader_from_files(server)
+
+    head("Sorveglianza automatica")
+    for server in servers:
+        info("%s (log: %s)" % (server.name, server.log_path or "nessun log trovato"))
+    if not any(s.log_path for s in servers):
+        warn("nessun log trovato: avvia almeno una volta i server da Crafty")
+    info("ogni %d secondi controllo i log e riparo da solo" % args.every)
+    info("aggiornamenti automatici: %s" % ("attivi" if args.update and modrinth_available() else "disattivati"))
+    info("quarantena: %s" % home.path)
+    info("Ctrl+C per fermare")
+
+    state = {}
+    if args.once:
+        watch_pass(servers, state, args, home)
+        return 0
+    try:
+        while True:
+            try:
+                watch_pass(servers, state, args, home)
+            except Exception as exc:  # un errore non deve fermare la sorveglianza
+                err("errore durante il controllo: %s" % exc)
+            time.sleep(args.every)
+    except KeyboardInterrupt:
+        print()
+        ok("sorveglianza fermata")
+    return 0
+
+
 def resolve_home(explicit: str, servers_dir: Path) -> tuple:
     candidates = [explicit] if explicit else []
     candidates.append(os.environ.get("CRAFTY_MEDIC_HOME", ""))
@@ -1742,14 +1878,19 @@ def main(argv=None) -> int:
         prog="crafty-medic",
         description="Trova e ripara i mod/plugin che impediscono al server Minecraft di partire.")
     parser.add_argument("comando", nargs="?", default="",
-                        choices=["", "scan", "fix", "undo", "quarantine", "update", "history"],
-                        help="scan=analizza, fix=ripara, undo=annulla, quarantine=lista, update=aggiorna, history=storico")
+                        choices=["", "scan", "fix", "auto", "watch", "undo", "quarantine", "update", "history"],
+                        help="scan=analizza, fix=ripara, auto=ripara tutto da solo, watch=sorveglia i log, "
+                             "undo=annulla, quarantine=lista, update=aggiorna, history=storico")
     parser.add_argument("server", nargs="?", default="", help="id o nome del server (facoltativo)")
     parser.add_argument("--dir", dest="servers_dir", default="", help="cartella dei server di Crafty")
     parser.add_argument("--home", dest="home", default="", help="cartella di quarantena/backup")
     parser.add_argument("--auto", action="store_true", help="applica tutte le riparazioni senza chiedere")
     parser.add_argument("--update", action="store_true", help="prova ad aggiornare da Modrinth invece di mettere in quarantena")
     parser.add_argument("--no-backup", dest="backup", action="store_false", help="non creare il backup")
+    parser.add_argument("--no-update", dest="no_update", action="store_true",
+                        help="non provare ad aggiornare: togli e basta")
+    parser.add_argument("--every", type=int, default=30, help="watch: secondi tra un controllo e l'altro")
+    parser.add_argument("--once", action="store_true", help="watch: un solo controllo e poi esci")
     parser.add_argument("--yes", action="store_true", help="non chiedere conferme")
     parser.add_argument("--all", action="store_true", help="undo: annulla tutti i lotti")
     parser.add_argument("--batch", default="", help="undo: nome del lotto")
@@ -1758,6 +1899,7 @@ def main(argv=None) -> int:
     parser.add_argument("--mc", default="", help="update: versione di Minecraft")
     parser.add_argument("--loader", default="", help="update: loader (fabric/forge/paper)")
     parser.add_argument("--limit", type=int, default=20, help="history: quante righe")
+    parser.set_defaults(no_update=False)
     parser.add_argument("--json", action="store_true", help="output in JSON (solo scan)")
     parser.add_argument("--version", action="version", version="Crafty Medic %s" % VERSION)
     args, unknown = parser.parse_known_args(argv)
@@ -1773,8 +1915,14 @@ def main(argv=None) -> int:
         warn("cartella di quarantena non scrivibile: uso /tmp (i file potrebbero perdersi)")
     if args.comando == "scan":
         return cmd_scan(args, home, servers_dir)
-    if args.comando == "fix":
+    if args.comando in ("fix", "auto"):
+        if args.comando == "auto":
+            args.auto = True
         return cmd_fix(args, home, servers_dir)
+    if args.comando == "watch":
+        if not args.no_update and modrinth_available():
+            args.update = True
+        return cmd_watch(args, home, servers_dir)
     if args.comando == "undo":
         return cmd_undo(args, home, servers_dir)
     if args.comando == "quarantine":

@@ -104,8 +104,22 @@
 {% endfor %}
 
 {% if analysis.findings %}
+<div class="card" style="border-color:rgba(61,220,151,.35)">
+  <h3>🤖 Riparazione automatica</h3>
+  <div class="small muted">Un solo click e ci pensa lui: per ogni problema <b>aggiorna</b> il mod/plugin se esiste
+    una versione compatibile su Modrinth, altrimenti lo <b>mette in quarantena</b> (non lo cancella).
+    Poi riavvia il server e, se non riparte, annulla tutto.</div>
+  <form method="post" action="{{ url_for('auto_fix', server_id=server.server_id) }}" style="margin-top:12px"
+        onsubmit="return confirm('Riparazione automatica: aggiorno quello che posso e metto in quarantena il resto. Procedo?')">
+    <div class="btn-row">
+      <label class="small"><input type="checkbox" name="rollback" value="1" checked> annulla se non riparte</label>
+      <button class="big btn-ok" type="submit">🩺 Sistema tutto da solo</button>
+    </div>
+  </form>
+</div>
+
 <div class="card">
-  <h3>Applica le riparazioni</h3>
+  <h3>Oppure scegli tu cosa fare</h3>
   <div class="small muted">Prima di ogni intervento viene creato un backup di mods/, plugins/ e dei file di configurazione
     nella cartella dati di Crafty Medic. Se il server non riparte, le modifiche vengono annullate automaticamente.</div>
   <div class="hr"></div>
