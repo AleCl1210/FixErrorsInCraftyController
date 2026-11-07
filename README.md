@@ -1,97 +1,145 @@
 # 🩺 Crafty Medic
 
-> Il bottone "il mio server Minecraft non parte più" per chi usa **Crafty Controller** su **ZimaOS**.
+> Il modo rapido per far ripartire un server Minecraft che si è rotto: trova il mod o il plugin
+> colpevole e te lo toglie / aggiorna con un click (o con un comando).
 
-Crafty Medic è un piccolo container che si aggancia alla tua istanza di Crafty Controller, legge il log del
-server che è andato in crash, **capisce quale mod o plugin è il colpevole** e te lo propone da rimuovere o
-aggiornare **con un click** — con backup, quarantena e rollback automatico se qualcosa va storto.
+Pensato per chi usa **Crafty Controller su ZimaOS**. Due modi di usarlo:
 
-L'obiettivo è l'esperienza di Aternos ("c'è un problema → clicchi → riparte"), ma in self-hosted e senza
-cancellare nulla.
+| | **A. Dentro il container di Crafty** | **B. Container a parte con interfaccia web** |
+|---|---|---|
+| Come si usa | dal terminale che ZimaOS apre sui 3 puntini dell'app Crafty | pagina web su `http://IP-ZIMAOS:8765` |
+| Cosa installi | un solo file `.py` (nessuna dipendenza) | un container Docker in più |
+| Riavvia il server | te lo chiede (lo fai da Crafty) | lo fa da solo, verifica e annulla se non riparte |
+| Ideale se | vuoi zero sbatti e zero container in più | vuoi i bottoni e la riparazione automatica |
+
+**Crafty Controller 4 non ha un sistema di plugin** (non accetta estensioni), quindi nessuna delle
+due strade modifica Crafty: entrambe leggono i log e spostano file.
 
 ---
 
-## Perché un container esterno e non un "plugin di Crafty"
+# A. Dentro il container di Crafty (metodo veloce)
 
-Crafty Controller 4 **non ha un sistema di plugin**: non esiste una cartella dove caricare estensioni né
-un'API per aggiungere schede alla sua interfaccia. Quello che espone è una **REST API v2** completa
-(server, log, comandi, backup) e i file dei server sul disco.
+## 1. Apri il terminale
 
-Crafty Medic usa esattamente questi due canali:
+Da ZimaOS: **icona di Crafty → tre puntini → Terminale**. Sei *dentro* il container.
+
+## 2. Scarica lo script (una volta sola)
+
+```sh
+cd /crafty/servers
+curl -sSL -o crafty-medic.py https://raw.githubusercontent.com/AleCl1210/FixErrorsInCraftyController/arena/849627e8-fixerrorsincraftycontroller/crafty-medic.py
+```
+
+> **Perché proprio in `/crafty/servers`?** È una cartella "montata" (volume): sopravvive se ZimaOS
+> ricrea o aggiorna il container. Tutto il resto del container viene azzerato.
+> Se salvassi lo script in `/root` o `/opt`, al primo aggiornamento dell'app lo perderesti.
+
+**Se il container non ha internet** (il comando sopra dà errore): scarica `crafty-medic.py` dal PC,
+poi caricalo con il file manager di Crafty dentro la cartella di un server qualsiasi, e lancialo
+da lì: `python3 /crafty/servers/<tuo-server>/crafty-medic.py`. Oppure incollalo a mano:
+
+```sh
+cat > /crafty/servers/crafty-medic.py <<'FINE'
+    # incolla qui dentro tutto il contenuto del file crafty-medic.py
+FINE
+```
+
+## 3. Usalo
+
+```sh
+python3 /crafty/servers/crafty-medic.py            # menu: scegli il server e ripara
+```
+
+Oppure i comandi diretti:
+
+```sh
+python3 /crafty/servers/crafty-medic.py scan                 # analizza tutti i server
+python3 /crafty/servers/crafty-medic.py scan demo-1          # solo uno
+python3 /crafty/servers/crafty-medic.py fix demo-1           # ti chiede cosa fare
+python3 /crafty/servers/crafty-medic.py fix demo-1 --auto    # fa tutto da solo
+python3 /crafty/servers/crafty-medic.py undo                 # annulla l'ultima riparazione
+python3 /crafty/servers/crafty-medic.py quarantine           # elenca i file tolti
+python3 /crafty/servers/crafty-medic.py history              # cosa è stato fatto
+```
+
+## Che cosa vedi
+
+```
+Server: Moddato Fabric 1.20.1  (/crafty/servers/demo-fabric)
+    Minecraft: 1.20.1 | loader: fabric | jar installati: 5 | fermo
+
+[1] Mod per un'altra versione di Minecraft
+    Questo mod non supporta la versione di Minecraft del server: aggiornalo o toglilo.
+    severita': critico | affidabilita': 95% | da: log
+    file: mods/jei-1.21.1.jar
+    ---
+     - Mod 'JEI' (jei) 15.2.0.27 requires version 1.21.x of minecraft, which is missing!
+    ---
+
+[2] Dipendenza mancante
+    file: mods/reeses-sodium-options-1.6.4.jar
+    ---
+     - Mod 'Reese's Sodium Options' (reeses-sodium-options) 1.6.4 requires version 0.5.x
+       of mod sodium, which is missing!
+    ---
+
+    per riparare: python3 /crafty/servers/crafty-medic.py fix demo-fabric
+```
+
+Poi `fix` ti mostra la lista numerata: scrivi `1,3` e Invio (o `--auto` per fare tutto).
+
+```
+  ✓ backup: /crafty/backups/crafty-medic/backups/demo-paper-20261107-203326.tar.gz
+  ✓ in quarantena: plugins/EssentialsX-2.19.0.jar
+  ✓ in quarantena: plugins/ShopGUI.jar
+  ✓ spostato plugins/sodium-fabric-1.20.1-0.5.3.jar -> mods/
+
+  ! avvia il server da Crafty per verificare
+    se non riparte: python3 /crafty/servers/crafty-medic.py undo
+```
+
+## Cosa fa, cosa non fa
+
+* **Non cancella mai niente**: i file tolti vanno in quarantena, `undo` li rimette al loro posto
+  (anche gli spostamenti vengono annullati).
+* **Backup automatico** di `mods/`, `plugins/` e file di configurazione prima di ogni riparazione.
+* **Non riavvia il server da solo** (da dentro il container non può farlo): te lo chiede alla fine.
+  Dopo il riavvio rilancia `scan` per controllare che sia tutto ok.
+* Aggiornamento automatico da Modrinth: `update demo-1 --file mods/jei.jar [--project jei]`
+  (serve internet nel container).
+
+## Se qualcosa non torna
+
+| Messaggio | Cosa fare |
+|---|---|
+| `nessun server trovato in /crafty/servers` | indica la cartella giusta: `--dir /percorso/corretto` |
+| `nessun log trovato (logs/latest.log)` | avvia il server una volta da Crafty, poi rilancia `scan` |
+| `Minecraft: ? | loader: ?` | idem: senza log non posso indovinare la versione |
+| il server è `IN ESECUZIONE` | fermarlo prima è più pulito, ma lo script funziona lo stesso |
+
+---
+
+# B. Container a parte con interfaccia web
+
+Un piccolo container che si aggancia a Crafty via API, con pulsanti, verifica dell'avvio
+e rollback automatico.
 
 ```
 ┌──────────────────────┐        API v2 (HTTPS)         ┌────────────────────────┐
 │  Crafty Medic        │ ───────────────────────────►  │  Crafty Controller     │
-│  (container sidecar) │   lista server, log, start,    │  (container su ZimaOS) │
-│                      │   stop, restart, backup        │                        │
-│                      │                                │                        │
-│  interfaccia web     │ ◄── volume condiviso (rw) ───► │  /crafty/servers/...   │
+│  (container sidecar) │   lista server, log, start,   │  (container su ZimaOS) │
+│                      │   stop, restart, backup       │                        │
+│  interfaccia web     │ ◄── volume condiviso (rw) ───►│  /crafty/servers/...   │
 │  :8765               │   legge e sposta mods/plugins  │                        │
 └──────────────────────┘                                └────────────────────────┘
 ```
 
-Quindi: **nessuna modifica a Crafty**, nessun file di Crafty toccato, si disinstalla cancellando un container.
+## Installazione su ZimaOS
 
----
-
-## Cosa sa fare
-
-| Funzione | Dettaglio |
-|---|---|
-| **Diagnosi dal log** | ~30 regole per Fabric, Forge/NeoForge, Paper/Spigot/Bukkit, JVM e configurazione |
-| **Diagnosi senza log** | scansione dei metadati dentro i jar (`fabric.mod.json`, `mods.toml`, `plugin.yml`) per trovare mod/plugin incompatibili anche a server spento |
-| **Quarantena (1 click)** | il file viene spostato in una cartella sicura, **mai cancellato** |
-| **Aggiornamento (1 click)** | cerca su **Modrinth** la versione compatibile con la tua MC + loader e sostituisce il jar |
-| **Spostamento (1 click)** | plugin finito in `mods/`, mod finito in `plugins/`, jar perso in una sottocartella |
-| **Backup automatico** | prima di ogni intervento salva `mods/`, `plugins/` e i file di configurazione |
-| **Verifica e rollback** | riavvia il server, rilegge il log e, se il crash persiste, rimette tutto come prima |
-| **Storico** | registro di tutte le operazioni e ripristino selettivo dalla quarantena |
-
-### Esempi di errori riconosciuti
-
-* `Mod 'X' (x) requires version 0.5.x of mod sodium, which is missing!` → dipendenza mancante
-* `requires version 1.21.x of minecraft, which is missing!` → mod per un'altra versione di Minecraft
-* `Missing or unsupported mandatory dependencies: Mod ID: 'jei', Requested by: 'derivedaddon'` → Forge
-* `Unsupported API version 1.13` → plugin vecchio su Paper recente
-* `Unknown/missing dependency plugins: [Vault]` → plugin senza la sua dipendenza
-* `InvalidPluginException: Invalid plugin.yml` → jar sbagliato o corrotto
-* `has been compiled by a more recent version of the Java Runtime (class file version 61.0)` → Java sbagliato
-* `You need to agree to the EULA`, `FAILED TO BIND TO PORT`, `OutOfMemoryError`, mondo danneggiato
-* Mod solo client su server, mod duplicati, jar corrotti, mod/plugin nella cartella sbagliata
-
----
-
-## Installazione su ZimaOS (5 minuti)
-
-### 1. Genera il token API di Crafty
-
-1. Apri Crafty nel browser, clicca l'**ingranaggio** in alto a destra
-2. Seleziona il tuo utente → **API Keys** → **Generate Key**
-3. Copia il token (serve un utente amministratore: i token limitati non vedono i log)
-
-### 2. Prepara la cartella
-
-Sullo ZimaOS (via SSH o dal file manager):
-
-```bash
-mkdir -p /DATA/AppData/crafty-medic/data
-cd /DATA/AppData/crafty-medic
-# copia qui i file del progetto (Dockerfile, docker-compose.yml, app/, scripts/, requirements.txt)
-```
-
-### 3. Monta lo stesso volume dei server
-
-Questo è il passaggio **fondamentale**: Crafty Medic deve vedere le cartelle dei server
-nello stesso punto in cui le vede Crafty, ma in lettura+scrittura.
-
-Esempio: se nel `docker-compose.yml` di Crafty trovi
-
-```yaml
-    volumes:
-      - /DATA/AppData/crafty/servers:/crafty/servers
-```
-
-allora in Crafty Medic devi mettere
+1. **Token API**: Crafty → ingranaggio → tuo utente → **API Keys** → Generate (serve un admin)
+2. **Cartella**: `mkdir -p /DATA/AppData/crafty-medic/data` e copiaci i file del progetto
+3. **Volume**: rimonta la stessa cartella host dei server di Crafty, in `rw`.
+   Se Crafty ha `- /DATA/AppData/crafty/servers:/crafty/servers`, in Crafty Medic metti:
 
 ```yaml
       - /DATA/AppData/crafty/servers:/mnt/crafty/servers:rw
@@ -100,148 +148,63 @@ allora in Crafty Medic devi mettere
       CRAFTY_MEDIC_PATH_MAP: "/crafty/servers=/mnt/crafty/servers"
 ```
 
-`CRAFTY_MEDIC_PATH_MAP` traduce i path che Crafty riporta via API (`/crafty/servers/<uuid>`)
-nei path visti da questo container. Se Crafty monta i server altrove (es. `/crafty/app/servers`),
-adatta la mappa.
+4. `cp .env.example .env` e compila `CRAFTY_URL`, `CRAFTY_TOKEN`, `CRAFTY_SERVERS_DIR`
+5. `docker compose up -d --build` → apri **http://IP-DI-ZIMAOS:8765**
 
-### 4. Configura `.env`
-
-```bash
-cp .env.example .env
-nano .env
-```
-
-Valori minimi:
-
-```dotenv
-CRAFTY_URL=https://192.168.1.10:8443      # IP di ZimaOS : porta di Crafty
-CRAFTY_TOKEN=il-tuo-token
-CRAFTY_SERVERS_DIR=/mnt/crafty/servers
-CRAFTY_MEDIC_PATH_MAP=/crafty/servers=/mnt/crafty/servers
-```
-
-### 5. Avvia
-
-```bash
-cd /DATA/AppData/crafty-medic
-docker compose up -d --build
-```
-
-Apri **http://IP-DI-ZIMAOS:8765**
-
-> Su ZimaOS puoi anche creare una "Custom app" incollando direttamente il contenuto di
-> `docker-compose.yml` (adattando i path).
-
-### Permessi (opzionale)
-
-Se Crafty gira con un utente non-root, allinea Crafty Medic con `PUID` e `PGID`
-(gli stessi che usi per Crafty), così i file spostati/restaurati restano suoi.
+Dalla dashboard clicchi **Analizza e ripara**, spunti quello che vuoi fare e premi **🛠 Ripara ora**:
+lui fa backup → ferma → sposta → riavvia → rilegge il log → **se il crash c'è ancora, annulla tutto**.
 
 ---
 
-## Come si usa
+# Cosa sa riconoscere
 
-1. Dalla **dashboard** clicca **Analizza e ripara** sul server che non parte
-2. Crafty Medic mostra i problemi trovati, con:
-   * il motivo spiegato in italiano,
-   * le righe del log che lo dimostrano,
-   * il file colpevole e l'azione proposta (quarantena / aggiornamento / spostamento)
-3. Le azioni sicure sono già spuntate: premi **🛠 Ripara ora**
-4. Parte la sequenza: *backup → fermo server → sposto i file → riavvio → verifica*
-5. Se dopo il riavvio il crash c'è ancora → **rollback automatico** e te lo dice
-6. Vuoi tornare indietro a mano? Vai in **Quarantena** → **Ripristina**
+| Categoria | Esempi |
+|---|---|
+| **Mod (Fabric)** | `requires version 0.5.x of mod sodium, which is missing!`, `requires version 1.21.x of minecraft, which is missing!`, `is incompatible with`, mod duplicati, mod solo client, errore di entrypoint |
+| **Mod (Forge/NeoForge)** | `Missing or unsupported mandatory dependencies: Mod ID: 'jei', Requested by: 'x'`, `Mixin apply for mod x failed`, `is missing mods.toml`, errore di fase di caricamento |
+| **Plugin (Paper/Spigot)** | `Unsupported API version 1.13`, `Unknown/missing dependency plugins: [Vault]`, `Invalid plugin.yml`, `Error occurred while enabling X (Is it up to date?)`, `Ambiguous plugin name` |
+| **Java / server** | `UnsupportedClassVersionError`, Java troppo vecchio, `OutOfMemoryError`, EULA non accettata, porta occupata, jar del server mancante, mondo danneggiato |
+| **Solo da scansione file** | mod per un'altra versione di Minecraft, dipendenze non installate, jar corrotti, mod duplicati, plugin in `mods/` (o viceversa), jar persi in sottocartelle, `api-version` più nuova del server |
 
-L'aggiornamento da Modrinth è "best effort": se il nome del mod non basta a identificare il progetto
-giusto, il tool te lo dice e puoi indicare a mano lo slug in **Impostazioni → Abbinamenti Modrinth**
-(es. `sodium-fabric-1.20.1-0.5.3.jar` → `sodium`).
+La **scansione dei file** legge cosa c'è scritto dentro ogni jar (`fabric.mod.json`, `mods.toml`,
+`plugin.yml`), quindi funziona **anche senza log** e a server spento.
 
 ---
 
-## Variabili d'ambiente
+# Come si usa in pratica (il flusso consigliato)
 
-| Variabile | Default | Descrizione |
-|---|---|---|
-| `CRAFTY_URL` | – | URL di Crafty (es. `https://192.168.1.10:8443`) |
-| `CRAFTY_TOKEN` | – | token API Crafty (utente amministratore) |
-| `CRAFTY_VERIFY_SSL` | `false` | Crafty usa certificati autofirmati |
-| `CRAFTY_SERVERS_DIR` | – | cartella dei server vista da questo container |
-| `CRAFTY_MEDIC_PATH_MAP` | – | traduzioni `pathCrafty=pathLocale` separate da virgola |
-| `CRAFTY_MEDIC_DATA_DIR` | `/data` | quarantena, backup, registro |
-| `CRAFTY_MEDIC_BACKUP` | `true` | backup prima di ogni riparazione |
-| `CRAFTY_MEDIC_AUTO_ROLLBACK` | `true` | annulla se il server non riparte |
-| `CRAFTY_MEDIC_BOOT_WAIT` | `60` | secondi per la verifica dell'avvio |
-| `CRAFTY_MEDIC_UPDATER` | `true` | ricerca aggiornamenti su Modrinth |
-| `CRAFTY_MEDIC_DEMO` | `false` | tre server finti con crash finti, per provare senza rischi |
-| `CRAFTY_MEDIC_HOST` / `CRAFTY_MEDIC_PORT` | `0.0.0.0` / `8765` | interfaccia web |
-| `PUID` / `PGID` | `0` | utente con cui girare |
+1. Il server non parte → apri il terminale (o la pagina web) e lancia l'**analisi**
+2. Leggi i problemi: ognuno ha il motivo in italiano, la riga di log che lo dimostra e il file
+3. Applica solo quelli che ti convincono (le azioni "sicure" sono già proposte)
+4. Riavvia da Crafty
+5. Se va: fine. Se non va: `undo` (o rollback automatico nella versione web) e riprovi con un altro file
 
 ---
 
-## Provalo senza Crafty (demo)
+# Sicurezza e limiti
+
+* Nulla viene cancellato: quarantena + backup + `undo`
+* Nessun comando viene inviato al server Minecraft, nessun file del mondo toccato
+* L'aggiornamento da Modrinth è euristico: se non è sicuro del progetto giusto te lo dice e ti
+  chiede lo slug (es. `--project sodium`)
+* **CurseForge richiede una API key personale**: per ora gli aggiornamenti arrivano da Modrinth
+* Bedrock non è supportato
+* Alcuni problemi non si risolvono spostando file (Java sbagliato, RAM, porta, mondo corrotto):
+  vengono segnalati con le istruzioni per sistemarli a mano
+
+---
+
+# Sviluppo
 
 ```bash
-git clone https://github.com/AleCl1210/FixErrorsInCraftyController.git
-cd FixErrorsInCraftyController
 pip install -r requirements.txt
+python -m pytest tests -q          # 34 test
 CRAFTY_MEDIC_DEMO=true python3 scripts/make_demo.py --force
-CRAFTY_MEDIC_DEMO=true CRAFTY_MEDIC_DATA_DIR=./data python -m app
-# http://localhost:8765
+CRAFTY_MEDIC_DEMO=true python -m app        # interfaccia web su :8765
+
+# oppure lo script singolo contro la demo:
+python3 crafty-medic.py scan --dir demo --home /tmp/cm
 ```
 
-Tre server finti (Fabric 1.20.1, Paper 1.20.6, Forge 1.20.1) con crash realistici: puoi provare
-quarantena, spostamenti e rollback senza toccare nulla di tuo.
-
----
-
-## Sicurezza
-
-* **Niente viene cancellato**: i file finiscono in quarantena e si ripristinano con un click
-* **Backup prima di agire**: `mods/`, `plugins/` e configurazioni vengono archiviati in `data/backups/`
-* **Rollback automatico** se dopo la riparazione il server non si avvia
-* **Nessun comando eseguito sul server**: Crafty Medic non scrive in console né nel mondo
-* Il token API va trattato come una password: Crafty Medic lo usa solo verso la tua istanza
-* L'aggiornamento da Modrinth scarica un jar e lo sostituisce: il vecchio resta in quarantena
-
----
-
-## Limiti noti
-
-* **Bedrock** non è supportato (solo Minecraft Java)
-* **CurseForge** richiede una API key personale: per ora gli aggiornamenti arrivano da **Modrinth**
-* L'aggiornamento automatico è euristico: controlla sempre che il progetto trovato sia quello giusto
-  (il tool mostra nome, versione e link prima/dopo l'operazione)
-* Alcuni problemi non sono riparabili spostando file (Java sbagliato, porta occupata, RAM insufficiente,
-  mondo corrotto): vengono segnalati con le istruzioni per sistemarli a mano
-* La diagnosi dipende dal log: se Crafty lo ruota subito, rilancia l'analisi dopo un tentativo di avvio
-
----
-
-## Struttura del progetto
-
-```
-app/
-  analyzer.py    # motore di diagnosi (log + scansione jar)
-  rules.py       # ~30 regole di riconoscimento errori
-  jarmeta.py     # lettura di fabric.mod.json / mods.toml / plugin.yml
-  versions.py    # confronto versioni e range (1.20.x, [1.20.1,1.21), ...)
-  repair.py      # quarantena, spostamenti, aggiornamenti, verifica, rollback
-  updater.py     # client Modrinth
-  crafty.py      # client API v2 di Crafty Controller
-  store.py       # quarantena, backup locali, registro operazioni
-  web.py         # interfaccia web (Flask)
-  demo.py        # provider finto per la modalità demo
-scripts/make_demo.py  # genera i dati dimostrativi
-tests/                # pytest
-```
-
-## Sviluppo
-
-```bash
-pip install -r requirements.txt
-python -m pytest tests -q
-CRAFTY_MEDIC_DEMO=true python -m app
-```
-
-Per aggiungere il riconoscimento di un nuovo errore basta una regola in `app/rules.py`
-(pattern, categoria, rimedio e funzione che estrae il nome del mod/plugin dal log)
-e un test in `tests/test_analyzer.py`.
+Per riconoscere un nuovo errore basta aggiungere una regola in `app/rules.py` (interfaccia web)
+e in `RULES` dentro `crafty-medic.py` (script a riga di comando), più un test in `tests/`.
