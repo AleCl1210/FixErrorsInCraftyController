@@ -1301,6 +1301,33 @@ def _pick(prompt: str, options: list | None = None, allow_empty: bool = True) ->
     return answer
 
 
+def parse_selection(choice: str, count: int) -> list:
+    """Interpreta la scelta dell'utente.
+
+    Accetta:  1,3   1-3   2-   -3   tutti/all/*   e combinazioni (1,3-5,8)
+    Restituisce gli indici (base 1) validi.
+    """
+    text = (choice or "").strip().lower()
+    if text in ("tutti", "tutto", "all", "*", "a"):
+        return list(range(1, count + 1))
+    if not text:
+        return []
+    selected = set()
+    for chunk in re.split(r"[,\s]+", text):
+        chunk = chunk.strip()
+        if not chunk:
+            continue
+        if "-" in chunk:  # range, es. "1-3", "2-", "-3"
+            start_raw, _, end_raw = chunk.partition("-")
+            start = int(start_raw) if start_raw.strip().isdigit() else 1
+            end = int(end_raw) if end_raw.strip().isdigit() else count
+            for number in range(min(start, end), max(start, end) + 1):
+                selected.add(number)
+        elif chunk.isdigit():
+            selected.add(int(chunk))
+    return sorted(number for number in selected if 1 <= number <= count)
+
+
 def print_findings(server: Server, findings: list) -> None:
     if not findings:
         ok("nessun problema rilevato")
@@ -1467,16 +1494,16 @@ def cmd_fix(args, home: MedicHome, servers_dir: Path) -> int:
             for index, finding in enumerate(fixable, 1):
                 print("  %d) [%s] %s -> %s" % (index, finding.severity, finding.title, finding.target_names))
                 print("       azione: %s" % action_for(finding, server))
-            choice = _pick("numeri da applicare (es. 1,3) o Invio per annullare:", None)
+            choice = _pick("quali riparo? (es. 1-3 oppure 1,3 oppure tutti; Invio = annulla)", None)
             if not choice:
                 info("nessuna modifica fatta")
                 continue
-            selected = []
-            for chunk in re.split(r"[,\s]+", choice):
-                try:
-                    selected.append(fixable[int(chunk) - 1])
-                except (ValueError, IndexError):
-                    pass
+            indices = parse_selection(choice, len(fixable))
+            selected = [fixable[i - 1] for i in indices]
+            if not selected:
+                warn("nessun numero valido (es. 1-3, 2, 5-): non faccio nulla")
+                continue
+            ok("riparo: %s" % ", ".join(str(i) for i in indices))
         if not selected:
             info("nessuna modifica fatta")
             continue
@@ -1672,7 +1699,7 @@ def cmd_menu(home: MedicHome, servers_dir: Path) -> int:
         status = _c("%d problemi" % len(important), "31") if important else _c("ok", "32")
         print("  %d) %-28s MC %-8s %-9s %s" % (index, server.name[:28], server.mc_version or "?",
                                                server.loader or "?", status))
-    print("  a) analizza tutti")
+    print("  a) analizza tutti (solo lettura)")
     print("  u) annulla l'ultima riparazione")
     print("  q) esci")
     choice = _pick("cosa faccio?", None).strip().lower()

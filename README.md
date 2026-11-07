@@ -86,7 +86,19 @@ Server: Moddato Fabric 1.20.1  (/crafty/servers/demo-fabric)
     per riparare: python3 /crafty/servers/crafty-medic.py fix demo-fabric
 ```
 
-Poi `fix` ti mostra la lista numerata: scrivi `1,3` e Invio (o `--auto` per fare tutto).
+Poi `fix` ti mostra la lista numerata e tu rispondi con i numeri, come preferisci:
+
+| Cosa scrivi | Cosa ripara |
+|---|---|
+| `1-3` | dal problema 1 al 3 |
+| `1,3` | solo il problema 1 e il 3 |
+| `2-` | dal 2 fino alla fine |
+| `-3` | dall'inizio fino al 3 |
+| `1,3-5,8` | misto |
+| `tutti` (o `*`, o `all`) | tutti |
+| Invio | annulla senza toccare nulla |
+
+Con `--auto` salta la domanda e ripara tutto.
 
 ```
   ✓ backup: /crafty/backups/crafty-medic/backups/demo-paper-20261107-203326.tar.gz

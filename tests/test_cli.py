@@ -100,6 +100,56 @@ def test_history_and_quarantine_commands(sandbox):
     assert "Quarantena" in quarantine.stdout
 
 
+def test_interactive_selection_accepts_ranges(sandbox):
+    """'1-3' deve selezionare i primi tre problemi, come '1,2,3'."""
+    base, servers, home = sandbox
+    # rimette la demo nello stato iniziale
+    subprocess.run([sys.executable, str(ROOT / "scripts" / "make_demo.py"),
+                    "--out", str(servers), "--force"], check=True)
+    (servers / "servers.json").unlink(missing_ok=True)
+
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), "--dir", str(servers), "--home", str(home),
+         "fix", "demo-paper"],
+        input="1-3\n", capture_output=True, text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "riparo: 1, 2, 3" in result.stdout
+
+    root = servers / "demo-paper"
+    assert not (root / "plugins" / "EssentialsX-2.19.0.jar").exists()
+    assert not (root / "plugins" / "ShopGUI.jar").exists()
+    assert not (root / "plugins" / "broken-plugin.jar").exists()
+    # il 4 e il 5 non sono stati toccati
+    assert (root / "plugins" / "sodium-fabric-1.20.1-0.5.3.jar").exists()
+    assert (root / "plugins" / "old" / "Vault.jar").exists()
+
+    # e con "tutti" parte anche il resto
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), "--dir", str(servers), "--home", str(home),
+         "fix", "demo-paper"],
+        input="tutti\n", capture_output=True, text=True,
+    )
+    assert (root / "mods" / "sodium-fabric-1.20.1-0.5.3.jar").exists()
+    assert (root / "plugins" / "Vault.jar").exists()
+
+
+def test_parse_selection():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("cm_cli", SCRIPT)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    parse = module.parse_selection
+    assert parse("1-3", 5) == [1, 2, 3]
+    assert parse("2-", 5) == [2, 3, 4, 5]
+    assert parse("-3", 5) == [1, 2, 3]
+    assert parse("1,3", 5) == [1, 3]
+    assert parse("tutti", 5) == [1, 2, 3, 4, 5]
+    assert parse("1,3-5,8", 10) == [1, 3, 4, 5, 8]
+    assert parse("7", 5) == []
+    assert parse("abc", 5) == []
+
+
 def test_scan_without_servers(tmp_path):
     result = run("scan", home=tmp_path / "home", servers=tmp_path / "vuoto")
     assert result.returncode == 1
