@@ -182,7 +182,10 @@ e rollback automatico.
 
 ## Installazione su ZimaOS
 
-1. **Token API**: Crafty → ingranaggio → tuo utente → **API Keys** → Generate (serve un admin)
+1. **Token API** *(opzionale)*: Crafty → ingranaggio → tuo utente → **API Keys** → Generate (serve un admin).
+   Senza token l'app funziona comunque: analizza, aggiorna, sposta e mette in quarantena — perde solo
+   i pulsanti *Avvia / Ferma / Riavvia* (che faresti tu da Crafty). Se il token non è pronto, lascia
+   `CRAFTY_TOKEN` vuoto e parti subito: lo aggiungi dopo.
 2. **Cartella**: `mkdir -p /DATA/AppData/crafty-medic/data` e copiaci i file del progetto
 3. **Volume**: rimonta la stessa cartella host dei server di Crafty, in `rw`.
    Se Crafty ha `- /DATA/AppData/crafty/servers:/crafty/servers`, in Crafty Medic metti:
@@ -194,7 +197,8 @@ e rollback automatico.
       CRAFTY_MEDIC_PATH_MAP: "/crafty/servers=/mnt/crafty/servers"
 ```
 
-4. `cp .env.example .env` e compila `CRAFTY_URL`, `CRAFTY_TOKEN`, `CRAFTY_SERVERS_DIR`
+4. `cp .env.example .env` e compila almeno `CRAFTY_SERVERS_DIR` (e `CRAFTY_URL`/`CRAFTY_TOKEN` se vuoi
+   anche l'avvio automatico)
 5. `docker compose up -d --build` → apri **http://IP-DI-ZIMAOS:8765**
 
 Dalla scheda del server hai due strade:

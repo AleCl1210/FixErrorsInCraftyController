@@ -28,7 +28,7 @@ services:
     environment:
       # --- collegamento a Crafty Controller ---
       CRAFTY_URL: "https://192.168.1.10:8443"   # l'IP di ZimaOS e la porta di Crafty
-      CRAFTY_TOKEN: ""                          # token API generato da Crafty (utente -> API Keys)
+      CRAFTY_TOKEN: ""                          # OPZIONALE: senza, niente avvio/arresto automatico
       CRAFTY_VERIFY_SSL: "false"                # Crafty usa un certificato self-signed
       # --- accesso ai file dei server (IMPORTANTE: in lettura+scrittura) ---
       # path dei server VISTO DAL CONTAINER Crafty -> path visto da questo container

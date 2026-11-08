@@ -78,20 +78,53 @@ class Medic:
         self._cache: dict[str, tuple[float, object]] = {}
 
     # ------------------------------------------------------------------ #
+    # ------------------------------------------------------------------ #
+    @property
+    def has_api(self) -> bool:
+        """True se le API di Crafty sono configurate (serve il token)."""
+        return bool(getattr(self.client, "configured", False))
+
+    def servers_from_disk(self) -> list[Server]:
+        """Ripiego: legge le cartelle dentro CRAFTY_SERVERS_DIR."""
+        root = Path(self.cfg.servers_dir)
+        servers: list[Server] = []
+        if not root.is_dir():
+            return servers
+        for child in sorted(root.iterdir()):
+            if not child.is_dir() or child.name.startswith(("_", ".")):
+                continue
+            servers.append(Server(
+                server_id=child.name,
+                name=child.name,
+                path=str(child),
+                log_path=str(child / "logs" / "latest.log"),
+                status="unknown",
+            ))
+        return servers
+
     def servers(self) -> tuple[list[Server], str | None]:
-        """Lista dei server + eventuale errore."""
-        try:
-            servers = self.client.list_servers()
-        except CraftyError as exc:
-            return [], str(exc)
-        except Exception as exc:  # pragma: no cover
-            return [], f"Errore imprevisto: {exc}"
-        for server in servers:
+        """Lista dei server + eventuale avviso/errore."""
+        notice = None
+        if self.has_api:
             try:
-                self.client.refresh_status(server)
-            except Exception:
-                pass
-        return servers, None
+                servers = self.client.list_servers()
+                for server in servers:
+                    try:
+                        self.client.refresh_status(server)
+                    except Exception:
+                        pass
+                return servers, None
+            except CraftyError as exc:
+                notice = str(exc)
+            except Exception as exc:  # pragma: no cover
+                notice = f"Errore imprevisto: {exc}"
+        else:
+            notice = "CRAFTY_URL o CRAFTY_TOKEN mancanti"
+
+        from_disk = self.servers_from_disk()
+        if from_disk:
+            return from_disk, notice
+        return [], notice or "nessun server trovato"
 
     def get_server(self, server_id: str) -> Server | None:
         servers, _ = self.servers()
@@ -140,6 +173,7 @@ def create_app(cfg: Config | None = None) -> Flask:
         return {
             "cfg": cfg,
             "demo": cfg.demo,
+            "has_api": medic.has_api,
             "crafty_online": online,
             "crafty_error": error,
             "quarantine_count": quarantine_count,
@@ -152,6 +186,9 @@ def create_app(cfg: Config | None = None) -> Flask:
     @app.get("/")
     def index():
         servers, error = medic.servers()
+        notice = None
+        if servers and error:
+            notice, error = error, None
         cards = []
         for server in servers:
             summary = {"problems": 0, "critical": 0}
@@ -165,7 +202,7 @@ def create_app(cfg: Config | None = None) -> Flask:
                 summary["error"] = str(exc)
             cards.append((server, summary))
         quarantine = medic.store.manifests()
-        return render_template("index.html", cards=cards, error=error,
+        return render_template("index.html", cards=cards, error=error, notice=notice,
                                quarantine_count=len([m for m in quarantine if not m.restored]))
 
     # ------------------------------------------------------------------ #

@@ -95,12 +95,15 @@ class RepairEngine:
 
         manifests: list[str] = []
         applied: list[dict] = []
+        has_api = bool(getattr(self.client, "configured", False))
         was_running = self._is_running(server)
 
         # 1) ferma il server
-        if was_running:
+        if was_running and has_api:
             job.emit("Server in esecuzione: lo fermo prima di toccare i file...")
             self._stop(server, job)
+        elif was_running:
+            job.emit("Il server risulta in esecuzione: se puoi, fermalo da Crafty prima di continuare.", "warn")
 
         # 2) backup
         if self.cfg.create_backup_before_fix:
@@ -139,6 +142,13 @@ class RepairEngine:
         self.store.audit(server.server_id, "apply", f"{len(applied)} azioni applicate", "warn")
 
         # 4) riavvio
+        if not has_api:
+            job.emit("Senza token API non posso riavviare il server: avvialo tu da Crafty.", "warn")
+            job.emit("Poi premi 'Analizza di nuovo' per controllare che sia partito.", "warn")
+            job.finish("done", applied=applied, started=False,
+                       manifests=manifests, detail="riavvio manuale richiesto")
+            return job
+
         if auto_start:
             job.emit("Riavvio il server per verificare...")
             self._start(server, job)
@@ -170,6 +180,8 @@ class RepairEngine:
 
     # ------------------------------------------------------------------ #
     def _is_running(self, server: Server) -> bool:
+        if not getattr(self.client, "configured", False):
+            return False
         try:
             self.client.refresh_status(server)
         except Exception:
@@ -195,6 +207,9 @@ class RepairEngine:
         job.emit("Il server non si e' fermato in tempo: continuo lo stesso.", "warn")
 
     def _start(self, server: Server, job: Job) -> None:
+        if not getattr(self.client, "configured", False):
+            job.emit("Avvio automatico non disponibile senza token API: avvia tu da Crafty.", "warn")
+            return
         try:
             self.client.action(server.server_id, "start_server")
             job.emit("Comando di avvio inviato a Crafty.")

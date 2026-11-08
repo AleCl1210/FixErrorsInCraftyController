@@ -86,7 +86,8 @@ footer{color:var(--muted);font-size:12px;text-align:center;padding:26px 10px}
   <div class="small">
     {% if demo %}<span class="badge b-info">DEMO</span>{% endif %}
     {% if crafty_online %}<span class="badge b-ok">Crafty raggiungibile</span>
-    {% else %}<span class="badge b-err">Crafty non raggiungibile</span>{% endif %}
+    {% elif has_api %}<span class="badge b-err">Crafty non raggiungibile</span>
+    {% else %}<span class="badge b-warn">solo file (senza token API)</span>{% endif %}
   </div>
 </header>
 <main>

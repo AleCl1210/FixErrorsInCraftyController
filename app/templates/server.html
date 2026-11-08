@@ -25,12 +25,22 @@
 
 <div class="card">
   <h3>Comandi Crafty</h3>
+{% if has_api %}
   <div class="btn-row">
     <form method="post" action="{{ url_for('control', server_id=server.server_id) }}"><input type="hidden" name="action" value="start_server"><button class="btn-ok">▶ Avvia</button></form>
     <form method="post" action="{{ url_for('control', server_id=server.server_id) }}"><input type="hidden" name="action" value="stop_server"><button class="btn-ghost" style="background:var(--panel2)">■ Ferma</button></form>
     <form method="post" action="{{ url_for('control', server_id=server.server_id) }}"><input type="hidden" name="action" value="restart_server"><button class="btn-ghost" style="background:var(--panel2)">⟳ Riavvia</button></form>
     <form method="post" action="{{ url_for('control', server_id=server.server_id) }}"><input type="hidden" name="action" value="backup_server"><button class="btn-ghost" style="background:var(--panel2)">🗄 Backup Crafty</button></form>
   </div>
+{% else %}
+  <div class="small muted">
+    Senza <span class="mono">CRAFTY_TOKEN</span> non posso avviare o fermare il server:
+    analisi, quarantena, spostamenti e aggiornamenti funzionano lo stesso, solo che
+    <b>il riavvio lo fai tu da Crafty</b> dopo la riparazione.
+    <br>Per abilitarli: Crafty → ingranaggio → tuo utente → <b>API Keys</b> → Generate,
+    poi metti il token in <span class="mono">CRAFTY_TOKEN</span> e ricrea il container.
+  </div>
+{% endif %}
 </div>
 
 {% if job %}
@@ -108,7 +118,7 @@
   <h3>🤖 Riparazione automatica</h3>
   <div class="small muted">Un solo click e ci pensa lui: per ogni problema <b>aggiorna</b> il mod/plugin se esiste
     una versione compatibile su Modrinth, altrimenti lo <b>mette in quarantena</b> (non lo cancella).
-    Poi riavvia il server e, se non riparte, annulla tutto.</div>
+    Poi {% if has_api %}riavvia il server e, se non riparte, annulla tutto{% else %}avvia tu il server da Crafty (qui non posso farlo senza token){% endif %}.</div>
   <form method="post" action="{{ url_for('auto_fix', server_id=server.server_id) }}" style="margin-top:12px"
         onsubmit="return confirm('Riparazione automatica: aggiorno quello che posso e metto in quarantena il resto. Procedo?')">
     <div class="btn-row">

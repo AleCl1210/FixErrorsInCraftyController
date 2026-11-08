@@ -10,6 +10,10 @@
 {% if error %}
   <div class="flash err"><b>Errore:</b> {{ error }}</div>
 {% endif %}
+{% if notice %}
+  <div class="flash warn">Lettura diretta dalle cartelle: {{ notice }}.
+    Analisi e riparazioni funzionano, ma non posso avviare/fermare il server al posto tuo.</div>
+{% endif %}
 
 {% if not cards %}
   <div class="card empty">
