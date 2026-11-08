@@ -14,8 +14,9 @@
 # ---------------------------------------------------------------------------
 services:
   crafty-medic:
-    image: ghcr.io/alecl1210/crafty-medic:latest
-    # oppure, se vuoi costruire l'immagine in locale:
+    # immagine gia' pronta, pubblicata automaticamente ad ogni push
+    image: ghcr.io/alecl1210/fixerrorsincraftycontroller:latest
+    # in alternativa, se preferisci costruirla tu sullo ZimaOS (serve SSH):
     # build: .
     container_name: crafty-medic
     restart: unless-stopped
