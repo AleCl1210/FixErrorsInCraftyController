@@ -1,0 +1,257 @@
+{% extends "base.html" %}
+{% block title %}{{ server.name }} &middot; Crafty Medic{% endblock %}
+{% block content %}
+<div class="btn-row" style="justify-content:space-between;align-items:flex-start">
+  <div>
+    <h1>{{ server.name }}</h1>
+    <div class="small">
+      <span class="badge {{ 'b-ok' if server.running else 'b-info' }}">{{ 'in esecuzione' if server.running else 'fermo' }}</span>
+      {% if analysis.mc_version %}<span class="badge">Minecraft {{ analysis.mc_version }}</span>{% endif %}
+      {% if analysis.loader %}<span class="badge">loader: {{ analysis.loader }}</span>{% endif %}
+      <span class="badge">{{ analysis.log_lines }} righe di log</span>
+      {% if not analysis.fs_access %}<span class="badge b-warn">cartella server non accessibile</span>{% endif %}
+    </div>
+  </div>
+  <div class="btn-row">
+    <a class="btn btn-ghost" href="{{ url_for('server_page', server_id=server.server_id, refresh='1') }}">🔄 Analizza di nuovo</a>
+    <a class="btn btn-ghost" href="{{ url_for('index') }}">← Tutti i server</a>
+  </div>
+</div>
+
+<div class="small muted" style="margin:10px 0 16px">
+  Cartella: <span class="mono">{{ root or 'non disponibile' }}</span>
+  {% if analysis.log_source %} &middot; log: <span class="mono">{{ analysis.log_source }}</span>{% endif %}
+</div>
+
+<div class="card">
+  <h3>Comandi Crafty</h3>
+{% if has_api %}
+  <div class="btn-row">
+    <form method="post" action="{{ url_for('control', server_id=server.server_id) }}"><input type="hidden" name="action" value="start_server"><button class="btn-ok">▶ Avvia</button></form>
+    <form method="post" action="{{ url_for('control', server_id=server.server_id) }}"><input type="hidden" name="action" value="stop_server"><button class="btn-ghost" style="background:var(--panel2)">■ Ferma</button></form>
+    <form method="post" action="{{ url_for('control', server_id=server.server_id) }}"><input type="hidden" name="action" value="restart_server"><button class="btn-ghost" style="background:var(--panel2)">⟳ Riavvia</button></form>
+    <form method="post" action="{{ url_for('control', server_id=server.server_id) }}"><input type="hidden" name="action" value="backup_server"><button class="btn-ghost" style="background:var(--panel2)">🗄 Backup Crafty</button></form>
+  </div>
+{% else %}
+  <div class="small muted">
+    Senza <span class="mono">CRAFTY_TOKEN</span> non posso avviare o fermare il server:
+    analisi, quarantena, spostamenti e aggiornamenti funzionano lo stesso, solo che
+    <b>il riavvio lo fai tu da Crafty</b> dopo la riparazione.
+    <br>Per abilitarli: Crafty → ingranaggio → tuo utente → <b>API Keys</b> → Generate,
+    poi metti il token in <span class="mono">CRAFTY_TOKEN</span> e ricrea il container.
+  </div>
+{% endif %}
+</div>
+
+{% if job %}
+<div class="card" id="job-card">
+  <h3>Riparazione in corso <span class="badge" id="job-status">{{ job.status }}</span></h3>
+  <pre id="job-lines">{{ job.lines | map(attribute='text') | join('\n') }}</pre>
+  <div id="job-done" style="display:none" class="btn-row">
+    <a class="btn" href="{{ url_for('server_page', server_id=server.server_id, refresh='1') }}">Aggiorna la pagina</a>
+  </div>
+</div>
+{% endif %}
+
+<h2>Diagnosi ({{ analysis.findings | length }} segnalazioni)</h2>
+
+{% if not analysis.findings %}
+  <div class="card"><div class="empty">Nessun problema rilevato: il log non contiene errori conosciuti e tutti i mod/plugin sembrano compatibili. 🎉</div></div>
+{% endif %}
+
+<form method="post" action="{{ url_for('apply', server_id=server.server_id) }}" id="fix-form">
+{% for f in analysis.sorted_findings() %}
+  <div class="card">
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px">
+      <span class="badge {{ 'b-crit' if f.severity=='critical' else 'b-warn' if f.severity=='high' else 'b-info' }}">{{ sev_label.get(f.severity, f.severity) }}</span>
+      <b>{{ f.title }}</b>
+      <span class="badge">{{ cat_label.get(f.category, f.category) }}</span>
+      <span class="badge">affidabilità {{ f.confidence }}%</span>
+      <span class="badge">{{ 'dal log' if f.source=='log' else 'da scansione file' }}</span>
+    </div>
+    <div class="small" style="margin-bottom:8px">{{ f.advice }}</div>
+
+    {% if f.targets %}
+      <div class="small muted">Coinvolti:
+        {% for t in f.targets %}<span class="mono">{{ t.rel }}</span>{% if not loop.last %}, {% endif %}{% endfor %}
+      </div>
+    {% endif %}
+    {% if f.unmatched %}
+      <div class="small muted">Nominativi non collegati a un file installato: <span class="mono">{{ f.unmatched | join(', ') }}</span></div>
+    {% endif %}
+
+    {% if f.evidence %}
+      <div class="evidence"><pre>{{ f.evidence | join('\n') }}</pre></div>
+    {% endif %}
+
+    {% if f.actions %}
+      {% for a in f.actions %}
+        <label class="pick">
+          <input type="checkbox" name="action" value="{{ a.kind }}|{{ a.target }}|{{ a.param }}"
+                 {% if a.kind in ['quarantine','move','delete'] and a.confidence >= 60 %}checked{% endif %}>
+          <span>
+            <b>{{ a.label }}</b>
+            <span class="badge">{{ remedy_label.get(a.kind, a.kind) }}</span>
+            {% if a.kind == 'update' %}<span class="badge b-info">richiede internet</span>{% endif %}
+            <div class="small muted">{{ a.detail }}</div>
+            {% if a.kind == 'update' %}
+              <div class="small" style="margin-top:6px">
+                Progetto Modrinth (facoltativo, es. <span class="mono">sodium</span>):
+                <input type="text" name="slug|{{ a.target }}" placeholder="slug o id Modrinth">
+                <button type="button" class="btn-ghost btn" onclick="previewUpdate('{{ server.server_id }}','{{ a.target }}', this)">Cerca aggiornamento</button>
+                <span class="small muted preview-out"></span>
+              </div>
+            {% endif %}
+          </span>
+        </label>
+      {% endfor %}
+    {% elif f.remedy == 'config' %}
+      <div class="small muted">Va sistemato dalla configurazione del server in Crafty (non posso farlo al posto tuo).</div>
+    {% else %}
+      <div class="small muted">Intervento manuale consigliato: nessun file individuato con certezza.</div>
+    {% endif %}
+  </div>
+{% endfor %}
+
+{% if analysis.findings %}
+<div class="card" style="border-color:rgba(61,220,151,.35)">
+  <h3>🤖 Riparazione automatica</h3>
+  <div class="small muted">Un solo click e ci pensa lui: per ogni problema <b>aggiorna</b> il mod/plugin se esiste
+    una versione compatibile su Modrinth, altrimenti lo <b>mette in quarantena</b> (non lo cancella).
+    Poi {% if has_api %}riavvia il server e, se non riparte, annulla tutto{% else %}avvia tu il server da Crafty (qui non posso farlo senza token){% endif %}.</div>
+  <form method="post" action="{{ url_for('auto_fix', server_id=server.server_id) }}" style="margin-top:12px"
+        onsubmit="return confirm('Riparazione automatica: aggiorno quello che posso e metto in quarantena il resto. Procedo?')">
+    <div class="btn-row">
+      <label class="small"><input type="checkbox" name="rollback" value="1" checked> annulla se non riparte</label>
+      <button class="big btn-ok" type="submit">🩺 Sistema tutto da solo</button>
+    </div>
+  </form>
+</div>
+
+<div class="card">
+  <h3>Oppure scegli tu cosa fare</h3>
+  <div class="small muted">Prima di ogni intervento viene creato un backup di mods/, plugins/ e dei file di configurazione
+    nella cartella dati di Crafty Medic. Se il server non riparte, le modifiche vengono annullate automaticamente.</div>
+  <div class="hr"></div>
+  <div class="btn-row">
+    <label class="small"><input type="checkbox" name="auto_start" value="1" checked> riavvia il server dopo la riparazione</label>
+    <label class="small"><input type="checkbox" name="rollback" value="1" checked> annulla automaticamente se non riparte</label>
+  </div>
+  <div style="margin-top:12px" class="btn-row">
+    <button class="big btn-ok" type="submit">🛠 Ripara ora</button>
+    <span class="small muted">Sposto i file in quarantena: niente viene cancellato.</span>
+  </div>
+</div>
+{% endif %}
+</form>
+
+<h2>Installati ({{ analysis.inventory | length }})</h2>
+<div class="card">
+{% if analysis.inventory %}
+  <table>
+    <tr><th>File</th><th>Nome</th><th>Tipo</th><th>Versione</th><th>Minecraft</th><th>Dimensione</th><th></th></tr>
+    {% for item in analysis.inventory %}
+      <tr>
+        <td class="mono small">{{ item.rel }}</td>
+        <td>{{ item.meta.label if item.meta else item.name }}</td>
+        <td>{{ item.meta.loader if item.meta else '?' }}</td>
+        <td class="small">{{ (item.meta.version if item.meta else '') or '-' }}</td>
+        <td class="small">{{ (item.meta.mc_spec or item.meta.api_version) if item.meta else '-' }}</td>
+        <td class="small">{{ item.size | sizeformat }}</td>
+        <td>
+          <form method="post" action="{{ url_for('quarantine_one', server_id=server.server_id) }}">
+            <input type="hidden" name="rel" value="{{ item.rel }}">
+            <button class="btn-ghost" style="background:var(--panel2)" onclick="return confirm('Mettere {{ item.rel }} in quarantena?')">Quarantena</button>
+          </form>
+        </td>
+      </tr>
+    {% endfor %}
+  </table>
+{% else %}
+  <div class="empty">Nessun jar trovato in mods/ o plugins/ (o cartella non accessibile).</div>
+{% endif %}
+</div>
+
+<h2>Quarantena di questo server</h2>
+<div class="card">
+{% if manifests %}
+  {% for m in manifests %}
+    <div class="btn-row" style="justify-content:space-between;margin-bottom:8px">
+      <div class="small">
+        <b>{{ m.created }}</b> &middot; {{ m.files | length }} file &middot; {{ m.reason }}
+        {% if m.restored %}<span class="badge b-ok">ripristinato</span>{% endif %}
+        <div class="mono muted" style="font-size:12px">
+          {% for f in m.files %}{{ f.rel }}<br>{% endfor %}
+        </div>
+      </div>
+      <div class="btn-row">
+        <form method="post" action="{{ url_for('restore_manifest', manifest_id=m.id) }}">
+          <button class="btn-ghost" style="background:var(--panel2)">↩ Ripristina</button>
+        </form>
+        <form method="post" action="{{ url_for('delete_manifest', manifest_id=m.id) }}" onsubmit="return confirm('Eliminare definitivamente questi file?')">
+          <button class="btn-ghost btn-danger" style="background:transparent;color:var(--err);border:1px solid var(--line)">Elimina</button>
+        </form>
+      </div>
+    </div>
+  {% endfor %}
+{% else %}
+  <div class="empty">Nessun file in quarantena per questo server.</div>
+{% endif %}
+</div>
+
+<h2>Ultime operazioni</h2>
+<div class="card">
+{% if audit %}
+  <table>
+  {% for entry in audit %}
+    <tr><td class="small mono">{{ entry.ts }}</td><td class="small">{{ entry.action }}</td><td class="small muted">{{ entry.detail }}</td></tr>
+  {% endfor %}
+  </table>
+{% else %}
+  <div class="empty">Ancora nulla.</div>
+{% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function previewUpdate(serverId, target, button){
+  const out = button.parentElement.querySelector('.preview-out');
+  out.textContent = 'ricerca in corso...';
+  try{
+    const res = await fetch('/api/update-preview?server=' + encodeURIComponent(serverId) + '&file=' + encodeURIComponent(target));
+    const data = await res.json();
+    if(data.ok){
+      out.textContent = 'Trovato: ' + data.project + ' ' + data.version;
+    } else {
+      out.textContent = data.message + (data.candidates ? ' (' + data.candidates.map(c=>c.slug).join(', ') + ')' : '');
+    }
+  }catch(e){ out.textContent = 'errore: ' + e; }
+}
+{% if job %}
+(function(){
+  const statusEl = document.getElementById('job-status');
+  const linesEl = document.getElementById('job-lines');
+  async function poll(){
+    try{
+      const res = await fetch('/api/job/{{ job.id }}');
+      const data = await res.json();
+      statusEl.textContent = data.status;
+      statusEl.className = 'badge ' + (data.status==='done' ? 'b-ok' : (data.status==='error' ? 'b-err' : 'b-warn'));
+      linesEl.textContent = data.lines.map(l => '[' + l.ts + '] ' + l.text).join('\n');
+      linesEl.scrollTop = linesEl.scrollHeight;
+      if(['done','error','rolledback'].includes(data.status)){
+        document.getElementById('job-done').style.display = 'flex';
+        if(data.status !== 'done'){
+          setTimeout(()=>window.location.reload(), 1200);
+        }
+        return;
+      }
+    }catch(e){ /* riprova */ }
+    setTimeout(poll, 1500);
+  }
+  poll();
+})();
+{% endif %}
+</script>
+{% endblock %}

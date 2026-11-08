@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Crafty Medic &middot; Server{% endblock %}
+{% block content %}
+<h1>I tuoi server</h1>
+<p class="muted small">Crafty Medic legge i log e i metadati dei jar per trovare il mod o il plugin che blocca l'avvio.</p>
+
+{% if crafty_error %}
+  <div class="flash err"><b>Crafty non raggiungibile:</b> {{ crafty_error }}</div>
+{% endif %}
+{% if error %}
+  <div class="flash err"><b>Errore:</b> {{ error }}</div>
+{% endif %}
+{% if notice %}
+  <div class="flash warn">Lettura diretta dalle cartelle: {{ notice }}.
+    Analisi e riparazioni funzionano, ma non posso avviare/fermare il server al posto tuo.</div>
+{% endif %}
+
+{% if not cards %}
+  <div class="card empty">
+    Nessun server trovato.{% if not demo %} Verifica CRAFTY_URL e CRAFTY_TOKEN nel file .env.{% endif %}
+  </div>
+{% endif %}
+
+<div class="grid">
+{% for server, summary in cards %}
+  <div class="card">
+    <h3>{{ server.name }}</h3>
+    <div class="small muted mono" style="margin-bottom:8px">{{ server.server_id }}</div>
+    <div style="margin-bottom:10px">
+      <span class="badge {{ 'b-ok' if server.running else 'b-info' }}">{{ 'in esecuzione' if server.running else 'fermo' }}</span>
+      {% if server.mc_version %}<span class="badge">MC {{ server.mc_version }}</span>{% endif %}
+      {% if server.server_type %}<span class="badge">{{ server.server_type }}</span>{% endif %}
+    </div>
+    <div style="margin-bottom:12px">
+      {% if summary.get('critical') %}
+        <span class="badge b-crit">{{ summary['critical'] }} problemi bloccanti</span>
+      {% elif summary.get('problems') %}
+        <span class="badge b-warn">{{ summary['problems'] }} cose da controllare</span>
+      {% else %}
+        <span class="badge b-ok">nessun problema rilevato</span>
+      {% endif %}
+      {% if summary.get('fixable') %}<span class="badge">{{ summary['fixable'] }} riparabili</span>{% endif %}
+    </div>
+    <div class="btn-row">
+      <a class="btn" href="{{ url_for('server_page', server_id=server.server_id, refresh='1') }}">Analizza e ripara</a>
+    </div>
+  </div>
+{% endfor %}
+</div>
+
+{% if demo %}
+<div class="card small muted">
+  <b>Modalità demo:</b> i tre server qui sopra sono finti e vivono nella cartella <span class="mono">demo/</span>.
+  Le azioni (quarantena, spostamento) avvengono davvero sui file demo, così puoi provare tutto senza rischi.
+  Per collegarti al tuo Crafty: imposta <span class="mono">CRAFTY_MEDIC_DEMO=false</span>,
+  <span class="mono">CRAFTY_URL</span>, <span class="mono">CRAFTY_TOKEN</span> e <span class="mono">CRAFTY_SERVERS_DIR</span> nel file <span class="mono">.env</span>.
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Quarantena &middot; Crafty Medic{% endblock %}
+{% block content %}
+<h1>Quarantena</h1>
+<p class="muted small">I file spostati qui non vengono cancellati: puoi rimetterli al loro posto con un click.</p>
+
+{% if not manifests %}
+  <div class="card empty">La quarantena è vuota.</div>
+{% endif %}
+
+{% for m in manifests %}
+  <div class="card">
+    <div class="btn-row" style="justify-content:space-between;align-items:flex-start">
+      <div>
+        <h3 style="margin-bottom:4px">{{ m.server_name }} <span class="muted small mono">{{ m.server_id }}</span></h3>
+        <div class="small muted">{{ m.created }} &middot; {{ m.files | length }} file &middot; {{ m.size | sizeformat }}
+          {% if m.restored %}<span class="badge b-ok">ripristinato</span>{% endif %}</div>
+        <div class="small" style="margin-top:6px">{{ m.reason }}</div>
+        <ul class="tight small mono">
+          {% for f in m.files %}<li>{{ f.rel }} <span class="muted">({{ f.size | sizeformat }})</span></li>{% endfor %}
+        </ul>
+      </div>
+      <div class="btn-row">
+        <form method="post" action="{{ url_for('restore_manifest', manifest_id=m.id) }}">
+          <button class="btn-ok">↩ Ripristina</button>
+        </form>
+        <form method="post" action="{{ url_for('delete_manifest', manifest_id=m.id) }}" onsubmit="return confirm('Eliminare definitivamente questi file dalla quarantena?')">
+          <button class="btn-danger">🗑 Elimina definitivamente</button>
+        </form>
+      </div>
+    </div>
+  </div>
+{% endfor %}
+{% endblock %}

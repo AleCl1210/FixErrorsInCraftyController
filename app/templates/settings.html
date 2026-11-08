@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}Impostazioni &middot; Crafty Medic{% endblock %}
+{% block content %}
+<h1>Impostazioni</h1>
+<p class="muted small">I valori vengono dalle variabili d'ambiente (o dal file .env).</p>
+
+<div class="card">
+  <h3>Collegamento a Crafty</h3>
+  <table>
+    <tr><td>CRAFTY_URL</td><td class="mono">{{ cfg.crafty_url or '(non impostato)' }}</td></tr>
+    <tr><td>CRAFTY_TOKEN</td><td class="mono">{{ ('*' * 12) if cfg.crafty_token else '(non impostato)' }}</td></tr>
+    <tr><td>CRAFTY_SERVERS_DIR</td><td class="mono">{{ cfg.servers_dir or '(non impostato)' }}</td></tr>
+    <tr><td>CRAFTY_MEDIC_PATH_MAP</td><td class="mono">{{ cfg.path_map or '(nessuna)' }}</td></tr>
+    <tr><td>Cartella dati</td><td class="mono">{{ cfg.data_dir }}</td></tr>
+    <tr><td>Backup prima di ogni riparazione</td><td class="mono">{{ 'sì' if cfg.create_backup_before_fix else 'no' }}</td></tr>
+    <tr><td>Rollback automatico</td><td class="mono">{{ 'sì' if cfg.auto_rollback else 'no' }}</td></tr>
+    <tr><td>Aggiornamenti da Modrinth</td><td class="mono">{{ 'attivi' if cfg.updater_enabled else 'disattivati' }}</td></tr>
+    <tr><td>Modalità demo</td><td class="mono">{{ 'sì' if cfg.demo else 'no' }}</td></tr>
+  </table>
+</div>
+
+<div class="card">
+  <h3>Abbinamenti Modrinth</h3>
+  <p class="small muted">Quando il nome di un mod non basta a trovare il progetto giusto, puoi indicarlo a mano.
+    La chiave è il nome del file jar (in minuscolo) oppure l'id del mod.</p>
+  <table>
+    <tr><th>Chiave</th><th>Progetto Modrinth (slug o id)</th><th></th></tr>
+    {% for key, slug in mapping.items() %}
+      <tr>
+        <td class="mono small">{{ key }}</td>
+        <td class="mono small">{{ slug }}</td>
+        <td>
+          <form method="post" action="{{ url_for('save_mapping') }}">
+            <input type="hidden" name="key" value="{{ key }}">
+            <input type="hidden" name="slug" value="">
+            <button class="btn-ghost" style="background:var(--panel2)">Rimuovi</button>
+          </form>
+        </td>
+      </tr>
+    {% endfor %}
+  </table>
+  <form method="post" action="{{ url_for('save_mapping') }}" class="btn-row" style="margin-top:10px">
+    <input type="text" name="key" placeholder="es. sodium-fabric-1.20.1-0.5.3.jar">
+    <input type="text" name="slug" placeholder="es. sodium">
+    <button class="btn-ok">Salva</button>
+  </form>
+</div>
+
+<div class="card">
+  <h3>Registro operazioni</h3>
+  {% if audit %}
+    <table>
+      {% for entry in audit %}
+        <tr>
+          <td class="small mono">{{ entry.ts }}</td>
+          <td class="small mono">{{ entry.server_id }}</td>
+          <td class="small">{{ entry.action }}</td>
+          <td class="small muted">{{ entry.detail }}</td>
+        </tr>
+      {% endfor %}
+    </table>
+  {% else %}
+    <div class="empty">Ancora nessuna operazione.</div>
+  {% endif %}
+</div>
+{% endblock %}

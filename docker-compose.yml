@@ -1,0 +1,51 @@
+# ---------------------------------------------------------------------------
+# Crafty Medic - servizio da affiancare al container di Crafty Controller.
+#
+# SU ZIMAOS / CASAOS:
+#   1. apri il file docker-compose.yml dell'app Crafty (in ZimaOS di solito e'
+#      /DATA/AppData/<nome-app-crafty>/docker-compose.yml)
+#   2. copia qui sotto il servizio "crafty-medic" dentro la sezione "services:"
+#   3. rimonta ESATTAMENTE lo stesso volume dei server di Crafty, ma in
+#      lettura+scrittura, e traduci il path con CRAFTY_MEDIC_PATH_MAP
+#   4. docker compose up -d
+#
+# In alternativa puoi usare questo file cosi' com'e' come app custom in
+# ZimaOS ("Custom app" -> incolla il compose), adattando i path.
+# ---------------------------------------------------------------------------
+services:
+  crafty-medic:
+    # immagine gia' pronta, pubblicata automaticamente ad ogni push
+    image: ghcr.io/alecl1210/fixerrorsincraftycontroller:latest
+    # in alternativa, se preferisci costruirla tu sullo ZimaOS (serve SSH):
+    # build: .
+    container_name: crafty-medic
+    restart: unless-stopped
+    # se Crafty e' nello stesso compose, puoi usare depends_on
+    # depends_on:
+    #   - crafty
+    ports:
+      - "8765:8765"
+    environment:
+      # --- collegamento a Crafty Controller ---
+      CRAFTY_URL: "https://192.168.1.10:8443"   # l'IP di ZimaOS e la porta di Crafty
+      CRAFTY_TOKEN: ""                          # OPZIONALE: senza, niente avvio/arresto automatico
+      CRAFTY_VERIFY_SSL: "false"                # Crafty usa un certificato self-signed
+      # --- accesso ai file dei server (IMPORTANTE: in lettura+scrittura) ---
+      # path dei server VISTO DAL CONTAINER Crafty -> path visto da questo container
+      CRAFTY_SERVERS_DIR: "/mnt/crafty/servers"
+      CRAFTY_MEDIC_PATH_MAP: "/crafty/servers=/mnt/crafty/servers"
+      # --- opzioni ---
+      CRAFTY_MEDIC_DEMO: "false"                # true = usa server finti (solo per provare)
+      CRAFTY_MEDIC_DATA_DIR: "/data"            # quarantena, backup e log
+      CRAFTY_MEDIC_BACKUP: "true"               # backup prima di ogni riparazione
+      CRAFTY_MEDIC_AUTO_ROLLBACK: "true"        # annulla se il server non riparte
+      CRAFTY_MEDIC_BOOT_WAIT: "90"              # secondi di attesa per la verifica
+      CRAFTY_MEDIC_UPDATER: "true"              # aggiornamenti da Modrinth
+      TZ: "Europe/Rome"
+      PUID: "0"
+      PGID: "0"
+    volumes:
+      # ESEMPIO Crafty (ZimaOS): i server stanno qui sull'host -> dentro Crafty
+      # in /crafty/servers. Rimontali nella stessa identica posizione host.
+      - /DATA/AppData/crafty/servers:/mnt/crafty/servers:rw
+      - ./data:/data
